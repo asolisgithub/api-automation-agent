@@ -49,6 +49,7 @@ class FileCreationTool(BaseTool):
             data = tool_input
 
         if isinstance(data["files"], str):
+            print("STRING TO BE JSON LOADED : ",data["files"])
             files_data = json.loads(data["files"])
         else:
             files_data = data["files"]

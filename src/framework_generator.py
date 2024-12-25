@@ -82,12 +82,9 @@ class FrameworkGenerator:
                     continue
 
                 models = self._process_path_definition(path)
-                api_definition_summary = self._generate_api_definition_summary(path)
 
                 all_generated_models_info.append({
                     "path":path["path"],
-                    "summary":api_definition_summary,
-                    "files":[model["path"] for model in models],
                     "models":models,
                 })
 
@@ -149,22 +146,13 @@ class FrameworkGenerator:
                     models_matched_by_path = model["models"]
                 else:
                     all_available_models_minus_models_matched_by_path.append({
-                        "path": model["path"],
-                        "summary": model["summary"],
-                        "files": model["files"]
+                        "path": model["path"]
                     })
-            
-            read_files = self.llm_service.read_additional_model_info(
-                self.config.additional_context,
-                all_available_models_minus_models_matched_by_path,
-                models_matched_by_path,
-                verb_chunk
-            )
 
             self.logger.info(
                 f"\nGenerating tests for path: {verb_chunk['path']} and verb: {verb_chunk['verb']}"
             )
-            tests = self.llm_service.generate_first_test(self.config.additional_context, read_files, verb_chunk["yaml"], models_matched_by_path)
+            tests = self.llm_service.generate_first_test(self.config.additional_context, verb_chunk["yaml"], models_matched_by_path)
             if tests:
                 self.tests_count += 1
                 self._run_code_quality_checks(tests)
