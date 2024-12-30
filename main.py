@@ -11,6 +11,7 @@ from src.configuration.cli import CLIArgumentParser
 from src.configuration.config import Config, GenerationOptions, Envs
 from src.container import Container
 from src.framework_generator import FrameworkGenerator
+from src.utils.constants import DataSource
 from src.utils.logger import Logger
 
 
@@ -31,19 +32,26 @@ def main(
                 "The destination folder parameter must be set when using an existing framework."
             )
 
+        def _set_data_source(source_data_file_path):
+            if ".postman_collection" in source_data_file_path:
+                return DataSource.POSTMAN
+            else:
+                return DataSource.SWAGGER
+
         config.update(
             {
                 "api_file_path": args.api_file_path,
                 "destination_folder": args.destination_folder
                 or config.destination_folder,
                 "endpoint": args.endpoint,
-
+                "source": _set_data_source(args.api_file_path),
                 "generate": GenerationOptions(args.generate),
                 "use_existing_framework": args.use_existing_framework,
             }
         )
 
         logger.info(f"\nAPI file path: {config.api_file_path}")
+        logger.info(f"\nData source type: {config.source}")
         logger.info(f"Destination folder: {config.destination_folder}")
         logger.info(f"Use existing framework: {config.use_existing_framework}")
         logger.info(f"Endpoint: {config.endpoint}")
@@ -54,7 +62,8 @@ def main(
 
         if not config.use_existing_framework:
             framework_generator.setup_framework()
-            framework_generator.create_env_file(api_definitions[0])
+            if config.source != DataSource.POSTMAN:
+                framework_generator.create_env_file(api_definitions[0])
 
         framework_generator.generate(api_definitions, config.generate)
         framework_generator.run_final_checks(config.generate)

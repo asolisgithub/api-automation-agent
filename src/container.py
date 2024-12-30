@@ -21,11 +21,10 @@ class Container(containers.DeclarativeContainer):
 
     # Processors
     swagger_processor = processors_adapter.swagger_processor
+    postman_processor = processors_adapter.postman_processor
 
     # Services
-    file_service = providers.Factory(
-        FileService
-    )
+    file_service = providers.Factory(FileService)
     llm_service = providers.Factory(
         LLMService,
         config=config,
@@ -44,4 +43,5 @@ class Container(containers.DeclarativeContainer):
         command_service=command_service,
         file_service=file_service,
         swagger_processor=swagger_processor,
+        postman_processor=postman_processor,
     )

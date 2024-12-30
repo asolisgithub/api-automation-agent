@@ -21,12 +21,13 @@ class Config:
     env: Envs = Envs.DEV
     debug: bool = False
     model: Model = Model.CLAUDE_HAIKU
-    generate: GenerationOptions = GenerationOptions.MODELS_AND_TESTS
+    generate: GenerationOptions = GenerationOptions.MODELS_AND_FIRST_TEST
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     api_file_path: str = ""
     destination_folder: str = ""
     endpoint: str = ""
+    source: str = ""
     use_existing_framework: bool = False
 
     def update(self, updates: dict[str, Any]):

@@ -1,14 +1,15 @@
 ## Role
 
 You are an expert developer specializing in TypeScript, with extensive experience in Automation Testing for REST APIs. 
-You will create the code for API automation tests based on an OpenAPI definition. 
+You will create the code for API automation tests based on the {data_source}. 
 The tests must be created for a custom framework I will detail below.
 
 ## Task
 
-Your task is to create the Service Model file for the path documented on the OpenAPI Definition section.
-- Include in the Service Model every verb detailed in the OpenAPI Definition.
+Your task is to create the Service Model file for the path documented on the {data_source} section.
+- Include in the Service Model every verb detailed in the {data_source}.
 - Parameters to the verbs methods must be of type unknown, to allow to test negative scenarios.
+- If information about query parameters is provided, create a separate interface for query parameters with the suffix Params inside the request folder
 - Service Models must be placed inside /src/models/services folder.
 - If additional models are required, such as Request or Response models, create separate files for them and import them into the Service Model class. Don't declare the models interfaces inside the service model file.
 - Models must be placed inside /src/models/requests or /src/models/responses folders.
@@ -353,11 +354,32 @@ export interface BookingModel {{
   }};
   additionalneeds?: string | undefined;
 }}
+
+##### Query Parameters Model example
+
+```tsx
+export interface CalendarOptions {{
+  businessid?: string,
+  countrycode?: string,
+}}
 ```
 
-## OpenAPI Definition
+##### Query Parameters usage example
 
-```yaml
+```tsx
+import {{ AxiosRequestConfig }} from "axios";
+
+async getBusinessCalendarData<T>(params?: CalendarOptions): Promise<Response<T>> {{
+  config.params = params;
+  return await this.get<T>(`${{this.url}}/businesscalendar`, config);
+}}
+```
+
+```
+{data_source}
+```
+
+```
 {api_definition}
 ```
 

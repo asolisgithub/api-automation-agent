@@ -7,6 +7,8 @@ from langchain_core.language_models import BaseLanguageModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import BaseTool
 
+from src.utils.constants import DataSource
+
 from .file_service import FileService
 from ..configuration.config import Config
 from ..ai_tools.file_creation_tool import FileCreationTool
@@ -21,12 +23,12 @@ class PromptConfig:
     DOT_ENV = "./prompts/create-dot-env.txt"
     MODELS = "./prompts/create-models.txt"
     FIRST_TEST = "./prompts/create-first-test.txt"
+    FIRST_TEST_POSTMAN = "./prompts/create-first-test-postman.txt"
     TESTS = "./prompts/create-tests.txt"
     FIX_TYPESCRIPT = "./prompts/fix-typescript.txt"
     SUMMARY = "./prompts/generate-summary.txt"
     ADD_INFO = "./prompts/add-info.txt"
     ADDITIONAL_TESTS = "./prompts/create-additional-tests.txt"
-
 
 
 class LLMService:
@@ -94,7 +96,10 @@ class LLMService:
             raise
 
     def create_ai_chain(
-        self, prompt_path: str, additional_tools: Optional[List[BaseTool]] = None, force_use_tool:str = "none"
+        self,
+        prompt_path: str,
+        additional_tools: Optional[List[BaseTool]] = None,
+        force_use_tool: str = "none",
     ) -> Any:
         """
         Create a flexible AI chain with tool support.
@@ -117,7 +122,9 @@ class LLMService:
             converted_tools = [convert_tool_for_model(tool, llm) for tool in all_tools]
 
             if force_use_tool != "none":
-                llm_with_tools = llm.bind_tools(converted_tools,tool_choice=force_use_tool)
+                llm_with_tools = llm.bind_tools(
+                    converted_tools, tool_choice=force_use_tool
+                )
             else:
                 llm_with_tools = llm.bind_tools(converted_tools)
 
@@ -149,41 +156,65 @@ class LLMService:
 
     def generate_models(self, api_definition: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate models from API definition."""
+        data_source = None
+        if self.config.source == "postman":
+            data_source = "API JSON Specification File"
+        else:
+            data_source = "OpenAPI Definition"
+
         return json.loads(
             self.create_ai_chain(PromptConfig.MODELS).invoke(
-                {"api_definition": api_definition}
+                {"api_definition": api_definition, "data_source": data_source}
             )
         )
 
     def generate_first_test(
-        self, extra_model_info:str, api_definition: Dict[str, Any], models: List[Dict[str, Any]]
+        self,
+        extra_model_info: str,
+        api_definition: Dict[str, Any],
+        models: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """Generate first test from API definition and models."""
-        return json.loads(
-            self.create_ai_chain(PromptConfig.FIRST_TEST).invoke({
+        prompt = None
+        if self.config.source == DataSource.POSTMAN:
+            prompt = PromptConfig.FIRST_TEST_POSTMAN
+        else:
+            prompt = PromptConfig.FIRST_TEST
+
+        generated_tests_and_responses = self.create_ai_chain(prompt).invoke(
+            {
                 "extra_model_info": extra_model_info,
                 "api_definition": api_definition,
-                "models": models
-            })
+                "models": models,
+            }
         )
-    
-    def generate_chunk_summary(
-        self, api_definition: Dict[str, Any]
-    ):
+
+        return json.loads(generated_tests_and_responses)
+
+    def generate_chunk_summary(self, api_definition: Dict[str, Any]):
         """Generate a summary for a given path/verb chunk"""
         return self.create_ai_chain(PromptConfig.SUMMARY).invoke(
             {"chunk": api_definition}
         )
 
     def read_additional_model_info(
-        self, available_models: Dict[str, Any], relevant_models: Dict[str, Any], verb_chunk: Dict[str, Any]
+        self,
+        available_models: Dict[str, Any],
+        relevant_models: Dict[str, Any],
+        verb_chunk: Dict[str, Any],
     ):
         """Trigger read file tool to decide what additional model info is needed"""
-        return self.create_ai_chain(PromptConfig.ADD_INFO,[FileReadingTool(self.config, self.file_service)],"read_files").invoke({
-            "available_models": available_models,
-            "relevant_models": relevant_models,
-            "verb_chunk": verb_chunk
-        })
+        return self.create_ai_chain(
+            PromptConfig.ADD_INFO,
+            [FileReadingTool(self.config, self.file_service)],
+            "read_files",
+        ).invoke(
+            {
+                "available_models": available_models,
+                "relevant_models": relevant_models,
+                "verb_chunk": verb_chunk,
+            }
+        )
 
     def generate_additional_tests(
         self,

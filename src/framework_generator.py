@@ -1,11 +1,15 @@
+import copy
+import re
 from typing import Optional, List, Dict, Any
 
 from .configuration.config import Config, GenerationOptions
 from .processors.swagger_processor import SwaggerProcessor
+from .processors.postman_processor import PostmanProcessor
 from .services.command_service import CommandService
 from .services.file_service import FileService
 from .services.llm_service import LLMService
 from .utils.logger import Logger
+from .utils.constants import DataSource
 
 
 class FrameworkGenerator:
@@ -16,12 +20,14 @@ class FrameworkGenerator:
         command_service: CommandService,
         file_service: FileService,
         swagger_processor: SwaggerProcessor,
+        postman_processor: PostmanProcessor,
     ):
         self.config = config
         self.llm_service = llm_service
         self.command_service = command_service
         self.file_service = file_service
         self.swagger_processor = swagger_processor
+        self.postman_processor = postman_processor
         self.models_count = 0
         self.tests_count = 0
         self.logger = Logger.get_logger(__name__)
@@ -36,9 +42,13 @@ class FrameworkGenerator:
             self.logger.info(
                 f"\nProcessing API definition from {self.config.api_file_path}"
             )
-            return self.swagger_processor.process_api_definition(
-                self.config.api_file_path
-            )
+
+            if self.config.source == DataSource.POSTMAN:
+                return self.postman_processor.process_json(self.config.api_file_path)
+            else:
+                return self.swagger_processor.process_api_definition(
+                    self.config.api_file_path
+                )
         except Exception as e:
             self._log_error("Error processing API definition", e)
             raise
@@ -64,6 +74,25 @@ class FrameworkGenerator:
             self._log_error("Error creating .env file", e)
             raise
 
+    def _verb_path_matches_root_path(self, verb_full_path: str, root_path: str):
+        processed_verb_path = None
+
+        if verb_full_path.startswith("{{"):
+            processed_verb_path = verb_full_path.split("}}/")[1]
+        elif verb_full_path.startswith("https://") or verb_full_path.startswith(
+            "http://"
+        ):
+            match = re.search(r"\.[a-z]+/(.+)", verb_full_path)
+            if match:
+                processed_verb_path = match.group(1).lstrip("/")
+
+        if processed_verb_path == root_path or processed_verb_path.startswith(
+            root_path + "/"
+        ):
+            return True
+        else:
+            return False
+
     def generate(
         self,
         merged_api_definition_list: List[Dict[str, Any]],
@@ -72,35 +101,102 @@ class FrameworkGenerator:
         """Process the API definitions and generate models and tests"""
         try:
             self.logger.info("\nProcessing API definitions")
-            models = None
-            all_generated_models_info = []
-            path_chunks = [path for path in merged_api_definition_list if path["type"] == "path"]
-            verb_chunks = [verb for verb in merged_api_definition_list if verb["type"] == "verb"]
+            if self.config.source == DataSource.POSTMAN:
+                all_generated_models_info = []
 
-            for path in path_chunks:
-                if not self._should_process_endpoint(path["path"]):
-                    continue
+                path_chunks = self.postman_processor.map_verb_chunks_to_path_chunks(
+                    self.config.api_file_path
+                )
 
-                models = self._generate_models(path)
-                api_definition_summary = self._generate_api_definition_summary(path)
+                for path in path_chunks:
+                    models = self._generate_models(path)
+                    api_definition_summary = self._generate_api_definition_summary(path)
+                    all_generated_models_info.append(
+                        {
+                            "path": path["path"],
+                            "summary": api_definition_summary,
+                            "files": [model["path"] for model in models],
+                            "models": models,
+                        }
+                    )
 
-                all_generated_models_info.append({
-                    "path":path["path"],
-                    "summary":api_definition_summary,
-                    "files":[model["path"] for model in models],
-                    "models":models,
-                })
+                verb_chunks = self.postman_processor.process_json(
+                    self.config.api_file_path
+                )
 
-            if generate_tests in (
+                for verb in verb_chunks:
+
+                    generated_tests_and_responses = self._generate_tests(
+                        verb,
+                        all_generated_models_info,
+                        GenerationOptions.MODELS_AND_FIRST_TEST,
+                    )
+
+                    updated_models_info = copy.deepcopy(all_generated_models_info)
+
+                    for file in generated_tests_and_responses:
+                        if "/responses" in file["path"]:
+
+                            for models_on_path in all_generated_models_info:
+
+                                if self._verb_path_matches_root_path(
+                                    verb["path"], models_on_path["path"]
+                                ):
+
+                                    model_on_path_copy = copy.deepcopy(models_on_path)
+                                    model_on_path_copy["files"].append(file["path"])
+                                    model_on_path_copy["models"].append(
+                                        file["fileContent"]
+                                    )
+                                    updated_models_info.append(model_on_path_copy)
+
+                                else:
+                                    updated_models_info.append(models_on_path)
+
+                    all_generated_models_info = copy.deepcopy(updated_models_info)
+
+            else:
+                models = None
+                all_generated_models_info = []
+                path_chunks = [
+                    path
+                    for path in merged_api_definition_list
+                    if path["type"] == "path"
+                ]
+                verb_chunks = [
+                    verb
+                    for verb in merged_api_definition_list
+                    if verb["type"] == "verb"
+                ]
+
+                for path in path_chunks:
+                    if not self._should_process_endpoint(path["path"]):
+                        continue
+
+                    models = self._generate_models(path)
+                    api_definition_summary = self._generate_api_definition_summary(path)
+
+                    all_generated_models_info.append(
+                        {
+                            "path": path["path"],
+                            "summary": api_definition_summary,
+                            "files": [model["path"] for model in models],
+                            "models": models,
+                        }
+                    )
+
+                if generate_tests in (
                     GenerationOptions.MODELS_AND_FIRST_TEST,
                     GenerationOptions.MODELS_AND_TESTS,
-            ):
-                for verb in verb_chunks:
-                    self._generate_tests(verb, all_generated_models_info, generate_tests)
+                ):
+                    for verb in verb_chunks:
+                        self._generate_tests(
+                            verb, all_generated_models_info, generate_tests
+                        )
 
-            self.logger.info(
-                f"\nGeneration complete. {self.models_count} models and {self.tests_count} tests were generated."
-            )
+                self.logger.info(
+                    f"\nGeneration complete. {self.models_count} models and {self.tests_count} tests were generated."
+                )
         except Exception as e:
             self._log_error("Error processing definitions", e)
             raise
@@ -132,7 +228,11 @@ class FrameworkGenerator:
         """Process a path definition and generate models"""
         try:
             self.logger.info(f"\nGenerating models for path: {api_definition['path']}")
-            models = self.llm_service.generate_models(api_definition["yaml"])
+            models = []
+            if self.config.source == DataSource.POSTMAN:
+                models = self.llm_service.generate_models(api_definition)
+            else:
+                models = self.llm_service.generate_models(api_definition["yaml"])
             if models:
                 self.models_count += len(models)
                 self._run_code_quality_checks(models)
@@ -154,30 +254,48 @@ class FrameworkGenerator:
             models_matched_by_path = None
             all_available_models_minus_models_matched_by_path = []
             for model in models:
-                if verb_chunk["path"] == model["path"] or str(verb_chunk["path"]).startswith(model["path"]+"/"):
+                if self._verb_path_matches_root_path(verb_chunk["path"], model["path"]):
                     models_matched_by_path = model["models"]
                 else:
-                    all_available_models_minus_models_matched_by_path.append({
-                        "path": model["path"],
-                        "summary": model["summary"],
-                        "files": model["files"]
-                    })
-            
+                    all_available_models_minus_models_matched_by_path.append(
+                        {
+                            "path": model["path"],
+                            "summary": model["summary"],
+                            "files": model["files"],
+                        }
+                    )
+
             read_files = self.llm_service.read_additional_model_info(
                 all_available_models_minus_models_matched_by_path,
                 models_matched_by_path,
-                verb_chunk
+                verb_chunk,
             )
 
             self.logger.info(
                 f"\nGenerating first test for path: {verb_chunk['path']} and verb: {verb_chunk['verb']}"
             )
-            tests = self.llm_service.generate_first_test(read_files, verb_chunk["yaml"], models_matched_by_path)
+
+            tests = None
+            if self.config.source == DataSource.POSTMAN:
+                tests = self.llm_service.generate_first_test(
+                    read_files, verb_chunk, models_matched_by_path
+                )
+            else:
+                tests = self.llm_service.generate_first_test(
+                    read_files, verb_chunk["yaml"], models_matched_by_path
+                )
+
             if tests:
                 self.tests_count += 1
                 self._run_code_quality_checks(tests)
                 if generate_tests == GenerationOptions.MODELS_AND_TESTS:
-                    self._generate_additional_tests(tests, models, api_definition)
+                    additional_tests = self._generate_additional_tests(
+                        tests, models, verb_chunk
+                    )
+                    tests = tests + additional_tests
+
+            return tests
+
         except Exception as e:
             self._log_error(
                 f"Error processing verb definition for {verb_chunk['path']} - {verb_chunk['verb']}",
@@ -201,6 +319,9 @@ class FrameworkGenerator:
             )
             if additional_tests:
                 self._run_code_quality_checks(additional_tests)
+
+            return additional_tests
+
         except Exception as e:
             self._log_error(
                 f"Error generating additional tests for {api_definition['path']} - {api_definition['verb']}",
@@ -225,7 +346,7 @@ class FrameworkGenerator:
         except Exception as e:
             self._log_error("Error during code quality checks", e)
             raise
-    
+
     def _generate_api_definition_summary(self, api_definition: Dict[str, Any]):
         """Generate a summary of a verb/path chunk"""
         try:
