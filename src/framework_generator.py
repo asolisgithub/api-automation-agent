@@ -275,7 +275,6 @@ class FrameworkGenerator:
                 for model in models_copy:
 
                     if verb_chunk["service"] == model["service"]:
-                        print("Matched model with verb chunk!")
                         models_matched_by_path = model["models"]
 
                     else:
