@@ -29,6 +29,8 @@ class PromptConfig:
     SUMMARY = "./prompts/generate-summary.txt"
     ADD_INFO = "./prompts/add-info.txt"
     ADDITIONAL_TESTS = "./prompts/create-additional-tests.txt"
+    GROUP_PATHS_BY_SERVICE = "./prompts/group-paths-by-service.txt"
+    FIX_JSON = "./prompts/fix-json.txt"
 
 
 class LLMService:
@@ -146,9 +148,24 @@ class LLMService:
             self.logger.error(f"Chain creation error: {e}")
             raise
 
+    def _load_json_safely(self, json_str: str) -> Any:
+        """
+        Load JSON from a string safely with LLM based retries.
+        """
+        for attempt in range(self.config.json_fix_retry):
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError as e:
+                if attempt < self.config.json_fix_retry - 1:
+                    json_str = self._fix_json(json_str)
+                else:
+                    raise Exception(
+                        f"Failed to load JSON after {self.config.json_fix_retry} attempts: {e}"
+                    )
+
     def generate_dot_env(self, api_definition: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate .env file configuration."""
-        return json.loads(
+        return self._load_json_safely(
             self.create_ai_chain(PromptConfig.DOT_ENV).invoke(
                 {"api_definition": api_definition}
             )
@@ -156,13 +173,14 @@ class LLMService:
 
     def generate_models(self, api_definition: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate models from API definition."""
+
         data_source = None
         if self.config.source == "postman":
             data_source = "API JSON Specification File"
         else:
             data_source = "OpenAPI Definition"
 
-        return json.loads(
+        return self._load_json_safely(
             self.create_ai_chain(PromptConfig.MODELS).invoke(
                 {"api_definition": api_definition, "data_source": data_source}
             )
@@ -175,6 +193,7 @@ class LLMService:
         models: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """Generate first test from API definition and models."""
+
         prompt = None
         if self.config.source == DataSource.POSTMAN:
             prompt = PromptConfig.FIRST_TEST_POSTMAN
@@ -189,7 +208,7 @@ class LLMService:
             }
         )
 
-        return json.loads(generated_tests_and_responses)
+        return self._load_json_safely(generated_tests_and_responses)
 
     def generate_chunk_summary(self, api_definition: Dict[str, Any]):
         """Generate a summary for a given path/verb chunk"""
@@ -216,6 +235,14 @@ class LLMService:
             }
         )
 
+    def group_paths_by_service(self, paths: str) -> List[Dict[str, Any]]:
+        """Groups paths by service"""
+        return self._load_json_safely(
+            self.create_ai_chain(PromptConfig.GROUP_PATHS_BY_SERVICE).invoke(
+                {"paths": paths}
+            )
+        )
+
     def generate_additional_tests(
         self,
         tests: List[Dict[str, Any]],
@@ -223,7 +250,7 @@ class LLMService:
         api_definition: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
         """Generate additional tests from tests, models and an API definition."""
-        return json.loads(
+        return self._load_json_safely(
             self.create_ai_chain(PromptConfig.ADDITIONAL_TESTS).invoke(
                 {"tests": tests, "models": models, "api_definition": api_definition}
             )
@@ -243,4 +270,14 @@ class LLMService:
 
         self.create_ai_chain(PromptConfig.FIX_TYPESCRIPT).invoke(
             {"files": files, "messages": messages}
+        )
+
+    def _fix_json(self, stringified_json: str) -> None:
+        """
+        Fix stringified JSON destined for loading.
+        """
+        self.logger.info("\nFixing stringified JSON")
+
+        return self.create_ai_chain(PromptConfig.FIX_JSON).invoke(
+            {"stringified_json": stringified_json}
         )

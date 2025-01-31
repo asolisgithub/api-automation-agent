@@ -101,30 +101,49 @@ class FrameworkGenerator:
         """Process the API definitions and generate models and tests"""
         try:
             self.logger.info("\nProcessing API definitions")
+
             if self.config.source == DataSource.POSTMAN:
+
                 all_generated_models_info = []
 
-                path_chunks = self.postman_processor.map_verb_chunks_to_path_chunks(
-                    self.config.api_file_path
+                verb_chunks = merged_api_definition_list
+
+                all_distinct_paths_no_query_params = (
+                    self.postman_processor.get_all_distinct_paths_no_query_params(
+                        verb_chunks
+                    )
                 )
 
-                for path in path_chunks:
-                    models = self._generate_models(path)
-                    api_definition_summary = self._generate_api_definition_summary(path)
+                paths_grouped_by_service = self.llm_service.group_paths_by_service(
+                    all_distinct_paths_no_query_params
+                )
+
+                service_chunks = self.postman_processor.map_verb_path_pairs_to_services(
+                    verb_chunks, paths_grouped_by_service
+                )
+
+                verb_chunks_tagged_with_service = (
+                    self.postman_processor.add_service_name_to_verb_chunks(
+                        verb_chunks, paths_grouped_by_service
+                    )
+                )
+
+                for service in service_chunks.items():
+
+                    models = self._generate_models(service)
+
+                    service_summary = self._generate_api_definition_summary(service)
+
                     all_generated_models_info.append(
                         {
-                            "path": path["path"],
-                            "summary": api_definition_summary,
+                            "service": service[0],
+                            "summary": service_summary,
                             "files": [model["path"] for model in models],
                             "models": models,
                         }
                     )
 
-                verb_chunks = self.postman_processor.process_json(
-                    self.config.api_file_path
-                )
-
-                for verb in verb_chunks:
+                for verb in verb_chunks_tagged_with_service:
 
                     generated_tests_and_responses = self._generate_tests(
                         verb,
@@ -135,13 +154,12 @@ class FrameworkGenerator:
                     updated_models_info = copy.deepcopy(all_generated_models_info)
 
                     for file in generated_tests_and_responses:
+
                         if "/responses" in file["path"]:
 
                             for models_on_path in all_generated_models_info:
 
-                                if self._verb_path_matches_root_path(
-                                    verb["path"], models_on_path["path"]
-                                ):
+                                if verb["service"] == models_on_path["service"]:
 
                                     model_on_path_copy = copy.deepcopy(models_on_path)
                                     model_on_path_copy["files"].append(file["path"])
@@ -152,8 +170,6 @@ class FrameworkGenerator:
 
                                 else:
                                     updated_models_info.append(models_on_path)
-
-                    all_generated_models_info = copy.deepcopy(updated_models_info)
 
             else:
                 models = None
@@ -227,7 +243,7 @@ class FrameworkGenerator:
     ) -> Optional[List[Dict[str, Any]]]:
         """Process a path definition and generate models"""
         try:
-            self.logger.info(f"\nGenerating models for path: {api_definition['path']}")
+            # self.logger.info(f"\nGenerating models for path: {api_definition['path']}")
             models = []
             if self.config.source == DataSource.POSTMAN:
                 models = self.llm_service.generate_models(api_definition)
@@ -238,9 +254,7 @@ class FrameworkGenerator:
                 self._run_code_quality_checks(models)
             return models
         except Exception as e:
-            self._log_error(
-                f"Error processing path definition for {api_definition['path']}", e
-            )
+            self._log_error(f"Error processing path definition for", e)
             raise
 
     def _generate_tests(
@@ -251,50 +265,85 @@ class FrameworkGenerator:
     ):
         """Generate tests for a specific verb (HTTP method) in the API definition"""
         try:
-            models_matched_by_path = None
-            all_available_models_minus_models_matched_by_path = []
-            for model in models:
-                if self._verb_path_matches_root_path(verb_chunk["path"], model["path"]):
-                    models_matched_by_path = model["models"]
-                else:
-                    all_available_models_minus_models_matched_by_path.append(
-                        {
-                            "path": model["path"],
-                            "summary": model["summary"],
-                            "files": model["files"],
-                        }
-                    )
 
-            read_files = self.llm_service.read_additional_model_info(
-                all_available_models_minus_models_matched_by_path,
-                models_matched_by_path,
-                verb_chunk,
-            )
+            models_copy = copy.deepcopy(models)
 
-            self.logger.info(
-                f"\nGenerating first test for path: {verb_chunk['path']} and verb: {verb_chunk['verb']}"
-            )
-
-            tests = None
             if self.config.source == DataSource.POSTMAN:
+                models_matched_by_path = None
+                all_available_models_minus_models_matched_by_path = []
+
+                for model in models_copy:
+
+                    if verb_chunk["service"] == model["service"]:
+                        print("Matched model with verb chunk!")
+                        models_matched_by_path = model["models"]
+
+                    else:
+                        all_available_models_minus_models_matched_by_path.append(
+                            {
+                                "summary": model["summary"],
+                                "files": model["files"],
+                            }
+                        )
+
+                read_files = self.llm_service.read_additional_model_info(
+                    all_available_models_minus_models_matched_by_path,
+                    models_matched_by_path,
+                    verb_chunk,
+                )
+
                 tests = self.llm_service.generate_first_test(
                     read_files, verb_chunk, models_matched_by_path
                 )
+
+                if tests:
+                    self.tests_count += 1
+                    self._run_code_quality_checks(tests)
+
+                return tests
+
             else:
+                models_matched_by_path = None
+                all_available_models_minus_models_matched_by_path = []
+
+                for model in models_copy:
+                    if self._verb_path_matches_root_path(
+                        verb_chunk["path"], model["path"]
+                    ):
+                        models_matched_by_path = model["models"]
+                    else:
+                        all_available_models_minus_models_matched_by_path.append(
+                            {
+                                "path": model["path"],
+                                "summary": model["summary"],
+                                "files": model["files"],
+                            }
+                        )
+
+                read_files = self.llm_service.read_additional_model_info(
+                    all_available_models_minus_models_matched_by_path,
+                    models_matched_by_path,
+                    verb_chunk,
+                )
+
+                self.logger.info(
+                    f"\nGenerating first test for path: {verb_chunk['path']} and verb: {verb_chunk['verb']}"
+                )
+
                 tests = self.llm_service.generate_first_test(
                     read_files, verb_chunk["yaml"], models_matched_by_path
                 )
 
-            if tests:
-                self.tests_count += 1
-                self._run_code_quality_checks(tests)
-                if generate_tests == GenerationOptions.MODELS_AND_TESTS:
-                    additional_tests = self._generate_additional_tests(
-                        tests, models, verb_chunk
-                    )
-                    tests = tests + additional_tests
+                if tests:
+                    self.tests_count += 1
+                    self._run_code_quality_checks(tests)
+                    if generate_tests == GenerationOptions.MODELS_AND_TESTS:
+                        additional_tests = self._generate_additional_tests(
+                            tests, models, verb_chunk
+                        )
+                        tests = tests + additional_tests
 
-            return tests
+                return tests
 
         except Exception as e:
             self._log_error(

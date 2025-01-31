@@ -49,8 +49,23 @@ provided by the user.
 The output must contain the function call for files that need to be read.
 Make sure the output is only the function call and nothing else.
 If no files are needed then provide an empty array.
+Select enough files to make sure the next Agent in the execution chain
+has all the info it needs.
 
 ### TASK DESCRIPTION END ###
+
+### ADDITIONAL CONSIDERATIONS START ###
+
+Our main focus is to avoid a lack information about existing services/interfaces when creating tests,
+the following is an example where accurate info gathering would make the difference
+
+//Bad Scenario : Lacks info, an actual interface should be provided to the generic
+const orderResponse = await orderService.create<{{ result: string }}>(productId);
+
+//Good scenario : The agent next in line has all the info it needs
+const orderResponse = await orderService.create<OrderServiceResponse>(productId);
+
+### ADDITIONAL CONSIDERATIONS END ###
 
 An example of additonal info need would be a test for shipments,
 where it would be necessary to enter products and customers first.

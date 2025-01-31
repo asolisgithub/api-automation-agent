@@ -10,6 +10,7 @@ Your primary task is to fix TypeScript compiler errors in API automation test co
 - You have to re-write the files with the minimal changes required to fix the TypeScript compiler errors.
 - Focus strictly on fixing the errors specified in the compiler messages. Do not make changes to any parts of the code not directly referenced by these error messages.
 - Preserve the existing code structure and logic wherever possible, making only the minimal adjustments needed to resolve each error.
+- Creating new files to solve the issues in the provided files is strictly prohibited.
 - The goal is to make the code error-free according to TypeScript standards and compiler requirements, without adding, refactoring, or optimizing unrelated code.
 
 ## Output

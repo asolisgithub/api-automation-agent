@@ -16,6 +16,7 @@ Your task is to create the Service Model file for the path documented on the {da
 - For request models, declare all their properties as optional.
 - Include ".js" in the import statements for modules.
 - You will be penalized for every TS or eslint error.
+- Avoid writing functions with hardcoded identifiers or data in their url. Change the hardcoded data for a modifiable string/number/object parameter.
 
 ## Output
 

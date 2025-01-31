@@ -1,0 +1,65 @@
+You are an expert API classifying agent.
+Your task is to group the following endpoints by service.
+
+A service is a class that represents a section of an API.
+A service contains functions that all relate to the same API section.
+These functions are HTTP API calls wrapped in some extra logic layers used to facilitate communication with the API.
+Usually most of these functions share the same root path.
+
+Services are a useful abstraction for representing a section of an API.
+
+Output only JSON. No other content other than JSON should be included in your response.
+
+An example of logically sound grouping is the following:
+    - Consider we have an E-commerce API
+    - Different sections of the API are products, categories, orders, customers, authentication, and user profiles.
+
+The following routes are provided:
+- /auth/signin
+- /api/v2/items
+- /shop/product/{{pid}}
+- /catalog/categories/all
+- /category/{{cid}}/details
+- /orders/past
+- /order/{{oid}}/summary
+- /user/account/me
+- /profile/{{userRef}}/info
+- /shipping/address
+- /shipping/address/{{addressId}}
+- /payment/methods
+- /payment/methods/{{methodId}}
+
+then a good grouping strategy would be:
+```json
+{{
+    "auth": ["/auth/signin"],
+    "products": [
+        "/api/v2/items",
+        "/shop/product/{{pid}}"
+    ],
+    "categories": [
+        "/catalog/categories/all",
+        "/category/{{cid}}/details"
+    ],
+    "orders": [
+        "/orders/past",
+        "/order/{{oid}}/summary"
+    ],
+    "customers": [
+        "/user/account/me",
+        "/profile/{{userRef}}/info"
+    ],
+    "shippingAddress": [
+        "/shipping/address",
+        "/shipping/address/{{addressId}}"
+    ],
+    "paymentMethods": [
+        "/payment/methods",
+        "/payment/methods/{{methodId}}"
+    ]
+}}
+```
+
+```json
+{paths}
+```

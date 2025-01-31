@@ -29,6 +29,7 @@ class Config:
     endpoint: str = ""
     source: str = ""
     use_existing_framework: bool = False
+    json_fix_retry: int = 5
 
     def update(self, updates: dict[str, Any]):
         for key, value in updates.items():
